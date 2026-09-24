@@ -12,6 +12,13 @@
 # Primary Compose project.
 !/docker-compose.yaml
 
+# Repository automation.
+!/.github/
+/.github/*
+!/.github/workflows/
+/.github/workflows/*
+!/.github/workflows/validate-stack.yml
+
 # Reviewed Caddy build and routing definitions. Runtime data, configuration,
 # and secrets below /opt/caddy remain ignored.
 !/caddy/

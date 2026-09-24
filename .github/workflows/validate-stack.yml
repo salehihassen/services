@@ -1,0 +1,99 @@
+name: Validate services stack
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-stack-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Scan Git history with Gitleaks
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+
+  validate:
+    name: Compose and configuration validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate primary Compose project
+        run: >-
+          docker compose
+          --env-file .env.example
+          --project-directory .
+          --file docker-compose.yaml
+          config --quiet
+
+      - name: Validate observability Compose project
+        run: >-
+          docker compose
+          --env-file observability/.env.example
+          --project-directory observability
+          --file observability/compose.yaml
+          config --quiet
+
+      - name: Build custom Caddy image
+        run: docker build --tag services-caddy-ci --file caddy/Dockerfile caddy
+
+      - name: Validate Caddyfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          ci_secrets="$(mktemp -d)"
+          trap 'rm -rf "$ci_secrets"' EXIT
+          printf '%s\n' 'ci-placeholder' > "$ci_secrets/porkbun_api_key"
+          printf '%s\n' 'ci-placeholder' > "$ci_secrets/porkbun_api_secret_key"
+
+          docker run --rm --network none --read-only \
+            --env-file "$GITHUB_WORKSPACE/.env.example" \
+            --env ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory \
+            --env "CADDY_BIND_ADDRESSES=100.64.0.10 [fd7a:0000:0000::10]" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/caddy/Caddyfile,dst=/etc/caddy/Caddyfile,readonly" \
+            --mount "type=bind,src=$ci_secrets/porkbun_api_key,dst=/run/secrets/porkbun_api_key,readonly" \
+            --mount "type=bind,src=$ci_secrets/porkbun_api_secret_key,dst=/run/secrets/porkbun_api_secret_key,readonly" \
+            --entrypoint caddy \
+            services-caddy-ci \
+            validate --config /etc/caddy/Caddyfile
+
+      - name: Check Alloy formatting
+        run: >-
+          docker compose
+          --env-file observability/.env.example
+          --project-directory observability
+          --file observability/compose.yaml
+          run --rm --no-deps alloy
+          fmt --test /etc/alloy/config.alloy
+
+      - name: Validate Loki configuration
+        run: >-
+          docker compose
+          --env-file observability/.env.example
+          --project-directory observability
+          --file observability/compose.yaml
+          run --rm --no-deps loki
+          -verify-config=true -config.file=/etc/loki/config.yaml
