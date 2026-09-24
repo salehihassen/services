@@ -2,6 +2,9 @@
 # credentials, certificates, databases, logs, backups, and temporary files.
 /*
 
+# Readme
+!/README.md
+
 # Repository metadata and sanitized templates.
 !/.gitignore
 !/.env.example
