@@ -97,7 +97,7 @@ services:
 
   # Quotes web app (FastAPI + htmx), exposed on loopback for Caddy.
   quotes:
-    image: quotes:0.4.0
+    image: ghcr.io/salehihassen/quotes-store:0.4.2
     container_name: quotes
     restart: unless-stopped
     env_file: /opt/postgresql/quotes.env
