@@ -1,0 +1,27 @@
+# Deny by default. /opt contains application data, source code, configuration,
+# credentials, certificates, databases, logs, backups, and temporary files.
+/*
+
+# Repository metadata and sanitized templates.
+!/.gitignore
+!/.env.example
+
+# Primary Compose project.
+!/docker-compose.yaml
+
+# Reviewed Caddy build and routing definitions. Runtime data, configuration,
+# and secrets below /opt/caddy remain ignored.
+!/caddy/
+/caddy/*
+!/caddy/Caddyfile
+!/caddy/Dockerfile
+
+# Reviewed observability project files. Its .env, secrets, provisioning state,
+# and persistent data remain ignored.
+!/observability/
+/observability/*
+!/observability/.env.example
+!/observability/compose.yaml
+!/observability/README.md
+!/observability/alloy-config.alloy
+!/observability/loki-config.yaml

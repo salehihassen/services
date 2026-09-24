@@ -1,0 +1,529 @@
+
+
+services:
+  portainer:
+    container_name: portainer
+    image: portainer/portainer-ce
+    restart: always
+    ports:
+      - "9000:9000/tcp"
+    environment:
+      - TZ=${TZ:?Set TZ in /opt/.env}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/portainer:/data
+  homeassistant:
+    container_name: homeassistant
+    image: "ghcr.io/home-assistant/home-assistant:stable"
+    volumes:
+      - /opt/homeassistant/config:/config
+      - /etc/localtime:/etc/localtime:ro
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+  zwavejs2mqtt:
+    container_name: zwavejs2mqtt
+    image: zwavejs/zwave-js-ui:11.22.3@sha256:14d018bb689eecce4029229764d2191d9b8d8f211106fcabaef421e7b0f8cf9c
+    restart: always
+    tty: true
+    stop_signal: SIGINT
+    environment:
+      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set in /opt/.env}
+      - ZWAVEJS_EXTERNAL_CONFIG=/usr/src/app/store/.config-db
+      - TZ=${TZ:?Set TZ in /opt/.env}
+    devices:
+      - '${ZWAVE_DEVICE:?Set ZWAVE_DEVICE in /opt/.env}:/dev/zwave'
+    volumes:
+      - /opt/z-wave-js/:/usr/src/app/store
+    ports:
+      - "8091:8091" # port for web interface
+      - "3000:3000" # port for Z-Wave JS websocket server
+  # Retired PostgreSQL 12.3 (EOL). Superseded by the PostgreSQL 18 service
+  # below; data kept at /opt/postgresql/data in case something still needs
+  # dumping. Not started by `docker compose up -d`; to run it:
+  #   docker compose --profile deprecated up -d pg-deprecated
+  pg-deprecated:
+    container_name: pg-deprecated
+    image: postgres:12.3-alpine
+    profiles: ["deprecated"]
+    restart: "no"
+    env_file: "/opt/postgres.env"
+    ports:
+      - 5432:5432
+    volumes:
+      - /opt/postgresql/data:/var/lib/postgresql/data
+  # PostgreSQL 18.6 + pgvector 0.8.6. Replaced the EOL 12.3 instance above;
+  # The application database was migrated to PostgreSQL 18 on 2026-09-09.
+  # Published on loopback only -- reach it from other tailnet hosts through
+  # pgadmin, or bind a private host address for direct client connections.
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg18-trixie
+    container_name: postgres
+    restart: unless-stopped
+    # POSTGRES_PASSWORD comes from this 0600 file rather than being inlined
+    # here, since this compose file is world-readable.
+    env_file: /opt/postgresql/postgres18.env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in /opt/.env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in /opt/.env}
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      # PG18 moved PGDATA to /var/lib/postgresql/<major>/docker and declares its
+      # volume one level up, so the parent is what gets mounted. Mounting
+      # .../data (the pre-18 habit) starts fine but loses data on recreate.
+      - /opt/postgresql/data18:/var/lib/postgresql
+      - /opt/postgresql/initdb18:/docker-entrypoint-initdb.d:ro
+    networks:
+      # `default` keeps pgadmin and forgejo working; postgres_network is the
+      # dedicated app<->database link that the quotes service joins.
+      - default
+      - postgres_network
+    shm_size: 256mb
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 2g
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:?Set POSTGRES_USER in /opt/.env} -d ${POSTGRES_DB:?Set POSTGRES_DB in /opt/.env}"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  # Quotes web app (FastAPI + htmx), exposed on loopback for Caddy.
+  quotes:
+    image: quotes:0.4.0
+    container_name: quotes
+    restart: unless-stopped
+    env_file: /opt/postgresql/quotes.env
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: ${POSTGRES_USER:?Set POSTGRES_USER in /opt/.env}
+      PGDATABASE: ${POSTGRES_DB:?Set POSTGRES_DB in /opt/.env}
+    ports:
+      - "127.0.0.1:8088:8000"
+    networks:
+      - postgres_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').read()==b'ok' else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  pgadmin:
+    container_name: pgadmin
+    image: dpage/pgadmin4:latest
+    restart: unless-stopped
+    env_file: "/opt/postgres.env"
+    ports:
+      - 15432:80
+    volumes:
+      - /opt/pgadmin:/var/lib/pgadmin
+  countdown-timer:
+    restart: always
+    ports:
+      - "8081:8080"
+    image: ${COUNTDOWN_IMAGE:?Set COUNTDOWN_IMAGE in /opt/.env}
+    container_name: countdown-timer
+    environment:
+      - TZ=${TZ:?Set TZ in /opt/.env}
+
+  # Tailnet-only AI proxy stack. Persistent configuration and state live in /opt/cpa.
+  cli-proxy-api:
+    image: eceasy/cli-proxy-api:v7.3.15@sha256:86032129fa65496428752ec6e5c7480f07fde137160b728cd850cc65e9eaa391
+    container_name: cli-proxy-api
+    restart: unless-stopped
+    user: "1000:1000"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        export MANAGEMENT_PASSWORD="$$(cat /run/secrets/cpa_management_key)"
+        exec /CLIProxyAPI/CLIProxyAPI -config /CLIProxyAPI/config/config.yaml
+    environment:
+      HOME: /tmp
+      TZ: ${TZ:?Set TZ in /opt/.env}
+    ports:
+      - "127.0.0.1:8317:8317"
+      # OAuth callback listeners; use an SSH local forward from the admin browser.
+      - "127.0.0.1:1455:1455"
+      - "127.0.0.1:54545:54545"
+      - "127.0.0.1:51121:51121"
+    volumes:
+      # Mount the parent directory read-write: CPA validates edits using a
+      # sibling temporary file before replacing config.yaml.
+      - /opt/cpa/config/cpa:/CLIProxyAPI/config:rw
+      - /opt/cpa/data/cpa-auth:/data/auth
+    secrets:
+      - source: cpa_management_key
+        target: cpa_management_key
+    networks:
+      cpa_policy_model:
+        ipv4_address: ${CPA_API_POLICY_IP:?Set CPA_API_POLICY_IP in /opt/.env}
+      cpa_management:
+        ipv4_address: ${CPA_API_MANAGEMENT_IP:?Set CPA_API_MANAGEMENT_IP in /opt/.env}
+      cpa_direct_egress:
+        ipv4_address: ${CPA_API_EGRESS_IP:?Set CPA_API_EGRESS_IP in /opt/.env}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,uid=1000,gid=1000
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1 && test -r /CLIProxyAPI/config/config.yaml"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  cpa-manager-plus:
+    image: seakee/cpa-manager-plus:v1.13.2@sha256:df53bff100f31a928357ad97360b9e6613fc9d70c10e910f6c9483910a5ec2e7
+    container_name: cpa-manager-plus
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      HTTP_ADDR: "0.0.0.0:18317"
+      USAGE_DATA_DIR: /data
+      USAGE_DB_PATH: /data/usage.sqlite
+      CPA_MANAGER_DATA_KEY_PATH: /data/data.key
+      CPA_MANAGER_ADMIN_KEY_FILE: /run/secrets/cpamp_admin_key
+      CPA_UPSTREAM_URL: http://cli-proxy-api:8317
+      CPA_MANAGEMENT_KEY_FILE: /run/secrets/cpa_management_key
+      USAGE_COLLECTOR_MODE: http
+      USAGE_BATCH_SIZE: "100"
+      USAGE_POLL_INTERVAL_MS: "500"
+      USAGE_QUERY_LIMIT: "50000"
+      USAGE_CORS_ORIGINS: "http://127.0.0.1:18317,http://localhost:18317"
+      USAGE_QUOTA_COOLDOWN_ENABLED: "false"
+      USAGE_ACCOUNT_ACTIONS_ENABLED: "false"
+      USAGE_ACCOUNT_ACTIONS_AUTO_DISABLE: "false"
+    # Docker 29 intentionally ignores published ports on internal-only networks.
+    # Admin access uses an SSH tunnel to the management-network address.
+    volumes:
+      - /opt/cpa/data/cpamp:/data
+    secrets:
+      - source: cpamp_admin_key
+        target: cpamp_admin_key
+      - source: cpa_management_key
+        target: cpa_management_key
+    networks:
+      cpa_management:
+        ipv4_address: ${CPAMP_MANAGEMENT_IP:?Set CPAMP_MANAGEMENT_IP in /opt/.env}
+      cpa_direct_egress:
+        ipv4_address: ${CPAMP_EGRESS_IP:?Set CPAMP_EGRESS_IP in /opt/.env}
+    depends_on:
+      cli-proxy-api:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,uid=1000,gid=1000
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.5
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:18317/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  ai-policy-proxy:
+    # Published by .github/workflows/publish-image.yml on the v0.4.0 tag.
+    # Digest-pinned so the release is unambiguous even when a stale local tag
+    # of the same name exists. To upgrade: push a new vX.Y.Z tag, then set the
+    # tag and digest here from `docker manifest inspect`.
+    image: ${AI_POLICY_PROXY_IMAGE:?Set AI_POLICY_PROXY_IMAGE in /opt/.env}
+    container_name: ai-policy-proxy
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      CPA_UPSTREAM: http://cli-proxy-api:8317
+      CATALOG_PATH: /config/catalog.json
+      AFFINITY_DB_PATH: /data/affinity.sqlite
+      HMAC_SECRET_PATH: /run/secrets/policy_hmac_key
+      LISTEN_HOST: 0.0.0.0
+      LISTEN_PORT: "18443"
+      MAX_BODY_BYTES: "26214400"
+      UPSTREAM_TIMEOUT_SECONDS: "900"
+    # Tailscale Serve targets the stable internal policy-network address.
+    volumes:
+      - /opt/cpa/config/ai-policy-proxy:/config:ro
+      - /opt/cpa/data/ai-policy-proxy:/data
+    secrets:
+      - source: policy_hmac_key
+        target: policy_hmac_key
+    networks:
+      cpa_policy_model:
+        ipv4_address: ${AI_POLICY_PROXY_IP:?Set AI_POLICY_PROXY_IP in /opt/.env}
+    depends_on:
+      cli-proxy-api:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,uid=1000,gid=1000
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18443/healthz', timeout=2).read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  caddy:
+    build:
+      context: /opt/caddy
+      dockerfile: Dockerfile
+    image: ${CADDY_IMAGE:?Set CADDY_IMAGE in /opt/.env}
+    container_name: ${CADDY_CONTAINER_NAME:?Set CADDY_CONTAINER_NAME in /opt/.env}
+    network_mode: host
+    restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    environment:
+      ACME_CA: https://acme-v02.api.letsencrypt.org/directory
+      CADDY_BIND_ADDRESSES: ${CADDY_BIND_ADDRESSES:?Set CADDY_BIND_ADDRESSES in /opt/.env}
+      CADDY_HOST_DOMAIN: ${CADDY_HOST_DOMAIN:?Set CADDY_HOST_DOMAIN in /opt/.env}
+      HOME_DOMAIN: ${HOME_DOMAIN:?Set HOME_DOMAIN in /opt/.env}
+      T3C_DOMAIN: ${T3C_DOMAIN:?Set T3C_DOMAIN in /opt/.env}
+      OPENWEBUI_ALIAS_DOMAIN: ${OPENWEBUI_ALIAS_DOMAIN:?Set OPENWEBUI_ALIAS_DOMAIN in /opt/.env}
+      OPENWEBUI_LEGACY_DOMAIN: ${OPENWEBUI_LEGACY_DOMAIN:?Set OPENWEBUI_LEGACY_DOMAIN in /opt/.env}
+      OPENWEBUI_REDIRECT_URL: ${OPENWEBUI_REDIRECT_URL:?Set OPENWEBUI_REDIRECT_URL in /opt/.env}
+      PORTAINER_DOMAIN: ${PORTAINER_DOMAIN:?Set PORTAINER_DOMAIN in /opt/.env}
+      POLICY_PROXY_DOMAIN: ${POLICY_PROXY_DOMAIN:?Set POLICY_PROXY_DOMAIN in /opt/.env}
+      POLICY_PROXY_UPSTREAM: ${POLICY_PROXY_UPSTREAM:?Set POLICY_PROXY_UPSTREAM in /opt/.env}
+      PGADMIN_DOMAIN: ${PGADMIN_DOMAIN:?Set PGADMIN_DOMAIN in /opt/.env}
+      FORGEJO_DOMAIN: ${FORGEJO_DOMAIN:?Set FORGEJO_DOMAIN in /opt/.env}
+      GRAFANA_DOMAIN: ${GRAFANA_DOMAIN:?Set GRAFANA_DOMAIN in /opt/.env}
+      COUNTDOWN_DOMAIN: ${COUNTDOWN_DOMAIN:?Set COUNTDOWN_DOMAIN in /opt/.env}
+      QUOTE_DOMAIN: ${QUOTE_DOMAIN:?Set QUOTE_DOMAIN in /opt/.env}
+      QUOTES_DOMAIN: ${QUOTES_DOMAIN:?Set QUOTES_DOMAIN in /opt/.env}
+    volumes:
+      - /opt/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /opt/caddy/data:/data
+      - /opt/caddy/config:/config
+    secrets:
+      - porkbun_api_key
+      - porkbun_api_secret_key
+    depends_on:
+      ai-policy-proxy:
+        condition: service_healthy
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 1.0
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  metube:
+    image: ghcr.io/alexta69/metube
+    container_name: metube
+    restart: unless-stopped
+    ports:
+     - "8082:8081"
+    volumes:
+     - /opt/youtube-download:/downloads
+
+  # Forgejo git forge. Web UI is published on loopback only and exposed on the
+  # tailnet by Caddy; git-over-SSH listens on 2222.
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:16.0.4-rootless@sha256:a263a1298e89e0bdf019005ce1927e9aadaa8f1bd2a94a3e66ad94e2a89e19ce
+    container_name: forgejo
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      # Metadata lives in the postgres service in this stack; git
+      # repositories stay on disk in /opt/forgejo/data.
+      FORGEJO__database__DB_TYPE: postgres
+      FORGEJO__database__HOST: postgres:5432
+      FORGEJO__database__NAME: forgejo
+      FORGEJO__database__USER: forgejo
+      FORGEJO__database__PASSWD__FILE: /run/secrets/forgejo_db_password
+      FORGEJO__database__SSL_MODE: disable
+      FORGEJO__server__DOMAIN: ${FORGEJO_DOMAIN:?Set FORGEJO_DOMAIN in /opt/.env}
+      FORGEJO__server__ROOT_URL: https://${FORGEJO_DOMAIN:?Set FORGEJO_DOMAIN in /opt/.env}/
+      FORGEJO__server__SSH_DOMAIN: ${FORGEJO_DOMAIN:?Set FORGEJO_DOMAIN in /opt/.env}
+      FORGEJO__server__SSH_PORT: "2222"
+      FORGEJO__server__SSH_LISTEN_PORT: "2222"
+      FORGEJO__service__DISABLE_REGISTRATION: "true"
+      FORGEJO__actions__ENABLED: "true"
+    ports:
+      - "127.0.0.1:3001:3000"
+      - "2222:2222"
+    volumes:
+      - /opt/forgejo/data:/var/lib/gitea
+      - /opt/forgejo/config:/etc/gitea
+      - /etc/localtime:/etc/localtime:ro
+    secrets:
+      - source: forgejo_db_password
+        target: forgejo_db_password
+    networks:
+      - default
+      - forgejo
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 1g
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Dedicated Docker daemon for CI: the runner starts job containers here and
+  # jobs use it for docker build/run, so workflows never touch the host's
+  # daemon. TLS client certs are generated into /opt/forgejo-runner/certs.
+  # Privileged, so any workflow that can reach it is effectively root on the
+  # host; only run workflows you trust.
+  forgejo-docker:
+    image: docker:29.8.0-dind@sha256:5efed980cba3fc126cf54e21a5a6ff8849d05b6e0623d6e7612f48e9cd6cd17e
+    container_name: forgejo-docker
+    hostname: forgejo-docker
+    restart: unless-stopped
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: /certs
+    volumes:
+      - /opt/forgejo-runner/certs:/certs
+      - /opt/forgejo-runner/docker:/var/lib/docker
+    networks:
+      forgejo_ci:
+        ipv4_address: ${FORGEJO_DOCKER_IP:?Set FORGEJO_DOCKER_IP in /opt/.env}
+    pids_limit: 4096
+    mem_limit: 4g
+    cpus: 4.0
+    healthcheck:
+      test: ["CMD", "docker", "-H", "unix:///var/run/docker.sock", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  forgejo-runner:
+    image: data.forgejo.org/forgejo/runner:13.1.0@sha256:c4af85fd9f0dd03788676a534781a87c71aa2c6a37737143e017eb94d4312952
+    container_name: forgejo-runner
+    restart: unless-stopped
+    user: "1000:1000"
+    command: ["forgejo-runner", "daemon", "--config", "/data/config.yml"]
+    environment:
+      HOME: /data
+      DOCKER_HOST: tcp://forgejo-docker:2376
+      DOCKER_TLS_VERIFY: "1"
+      DOCKER_CERT_PATH: /certs/client
+    volumes:
+      - /opt/forgejo-runner/data:/data
+      - /opt/forgejo-runner/certs/client:/certs/client:ro
+    secrets:
+      - source: forgejo_runner_token
+        target: forgejo_runner_token
+    networks:
+      forgejo:
+      forgejo_ci:
+        # Job containers inside forgejo-docker reach the runner's cache server here.
+        ipv4_address: ${FORGEJO_RUNNER_IP:?Set FORGEJO_RUNNER_IP in /opt/.env}
+    depends_on:
+      forgejo:
+        condition: service_healthy
+      forgejo-docker:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,uid=1000,gid=1000
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 512m
+    cpus: 1.0
+
+
+networks:
+  postgres_network:
+    driver: bridge
+  cpa_policy_model:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: ${CPA_POLICY_SUBNET:?Set CPA_POLICY_SUBNET in /opt/.env}
+  cpa_management:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: ${CPA_MANAGEMENT_SUBNET:?Set CPA_MANAGEMENT_SUBNET in /opt/.env}
+  cpa_direct_egress:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${CPA_EGRESS_SUBNET:?Set CPA_EGRESS_SUBNET in /opt/.env}
+  forgejo:
+    driver: bridge
+  forgejo_ci:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${FORGEJO_CI_SUBNET:?Set FORGEJO_CI_SUBNET in /opt/.env}
+
+secrets:
+  cpa_management_key:
+    file: /opt/cpa/secrets/cpa-management-key
+  cpamp_admin_key:
+    file: /opt/cpa/secrets/cpamp-admin-key
+  policy_hmac_key:
+    file: /opt/cpa/secrets/policy-hmac-key
+  porkbun_api_key:
+    file: /opt/caddy/secrets/porkbun_api_key
+  porkbun_api_secret_key:
+    file: /opt/caddy/secrets/porkbun_api_secret_key
+  forgejo_db_password:
+    file: /opt/forgejo/secrets/db-password
+  forgejo_runner_token:
+    file: /opt/forgejo-runner/secrets/runner-token
+
+volumes:
+  mongodb_data:
+  mongodb_config:
+  akaunting-data:
+  akaunting-db:

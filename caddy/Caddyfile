@@ -1,0 +1,132 @@
+{
+	auto_https disable_redirects
+	acme_ca {$ACME_CA}
+
+	acme_dns porkbun {
+		api_key {file./run/secrets/porkbun_api_key}
+		api_secret_key {file./run/secrets/porkbun_api_secret_key}
+	}
+}
+
+https://{$CADDY_HOST_DOMAIN} {
+	bind {$CADDY_BIND_ADDRESSES}
+
+	reverse_proxy http://{$POLICY_PROXY_UPSTREAM} {
+		header_up -Tailscale-*
+	}
+}
+
+https://{$HOME_DOMAIN} {
+	bind {$CADDY_BIND_ADDRESSES}
+
+	reverse_proxy http://127.0.0.1:8123 {
+		header_up -Tailscale-*
+	}
+}
+
+https://{$T3C_DOMAIN} {
+	bind {$CADDY_BIND_ADDRESSES}
+
+	reverse_proxy http://127.0.0.1:3773
+}
+
+# Redirect legacy Open Web UI aliases to the canonical deployment.
+https://{$OPENWEBUI_ALIAS_DOMAIN} {
+	redir {$OPENWEBUI_REDIRECT_URL}{uri} temporary
+}
+
+https://{$OPENWEBUI_LEGACY_DOMAIN} {
+	redir {$OPENWEBUI_REDIRECT_URL}{uri} temporary
+}
+
+https://{$PORTAINER_DOMAIN} {
+	bind {$CADDY_BIND_ADDRESSES}
+
+	reverse_proxy http://127.0.0.1:9000 {
+		header_up -Tailscale-*
+	}
+}
+
+https://{$POLICY_PROXY_DOMAIN} {
+	bind {$CADDY_BIND_ADDRESSES}
+
+	reverse_proxy http://{$POLICY_PROXY_UPSTREAM} {
+		header_up -Tailscale-*
+	}
+}
+
+https://{$PGADMIN_DOMAIN} {
+	bind {$CADDY_BIND_ADDRESSES}
+
+	reverse_proxy http://127.0.0.1:15432 {
+		header_up -Tailscale-*
+	}
+}
+
+https://{$FORGEJO_DOMAIN} {
+	bind {$CADDY_BIND_ADDRESSES}
+
+	# No request_body limit: container image layers are pushed in one request.
+	reverse_proxy http://127.0.0.1:3001 {
+		header_up -Tailscale-*
+	}
+}
+
+https://{$GRAFANA_DOMAIN} {
+	bind {$CADDY_BIND_ADDRESSES}
+
+	reverse_proxy http://127.0.0.1:13000 {
+		header_up -Tailscale-*
+	}
+}
+
+https://{$COUNTDOWN_DOMAIN} {
+	bind {$CADDY_BIND_ADDRESSES}
+
+	reverse_proxy http://127.0.0.1:8081 {
+		header_up -Tailscale-*
+	}
+}
+
+https://{$QUOTE_DOMAIN} {
+	bind {$CADDY_BIND_ADDRESSES}
+
+	# The zone has a wildcard CNAME. The host's stub resolver answers the
+	# ACME challenge name with that wildcard
+	# instead of the TXT record Caddy just wrote -- verified against the
+	# registrar, and it persists across `resolvectl flush-caches` -- so the
+	# DNS-01 propagation check never completes. Public resolvers see the TXT
+	# correctly, so ask them directly. Remove this only if the wildcard goes.
+	tls {
+		dns porkbun {
+			api_key {file./run/secrets/porkbun_api_key}
+			api_secret_key {file./run/secrets/porkbun_api_secret_key}
+		}
+		resolvers 1.1.1.1 8.8.8.8
+		propagation_delay 30s
+		propagation_timeout 5m
+	}
+
+	reverse_proxy http://127.0.0.1:8088 {
+		header_up -Tailscale-*
+	}
+}
+
+# Alias for the canonical quote site. Temporary (302) rather than permanent so the
+# canonical name can still be changed later without browsers holding a cached
+# 301. Needs its own tls block for the same reason quote.d does -- see above.
+https://{$QUOTES_DOMAIN} {
+	bind {$CADDY_BIND_ADDRESSES}
+
+	tls {
+		dns porkbun {
+			api_key {file./run/secrets/porkbun_api_key}
+			api_secret_key {file./run/secrets/porkbun_api_secret_key}
+		}
+		resolvers 1.1.1.1 8.8.8.8
+		propagation_delay 30s
+		propagation_timeout 5m
+	}
+
+	redir https://{$QUOTE_DOMAIN}{uri} temporary
+}
