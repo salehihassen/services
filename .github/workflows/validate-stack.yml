@@ -42,12 +42,14 @@ jobs:
           persist-credentials: false
 
       - name: Validate primary Compose project
+        # Runtime service env files live only on the deployment host.
+        # Keep interpolation from .env.example and Compose consistency checks.
         run: >-
           docker compose
           --env-file .env.example
           --project-directory .
           --file docker-compose.yaml
-          config --quiet
+          config --quiet --no-env-resolution
 
       - name: Validate observability Compose project
         run: >-
