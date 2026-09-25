@@ -367,22 +367,10 @@ services:
     container_name: forgejo
     restart: unless-stopped
     user: "1000:1000"
-    environment:
-      # Metadata lives in the postgres service in this stack; git
-      # repositories stay on disk in /opt/forgejo/data.
-      FORGEJO__database__DB_TYPE: postgres
-      FORGEJO__database__HOST: postgres:5432
-      FORGEJO__database__NAME: forgejo
-      FORGEJO__database__USER: forgejo
-      FORGEJO__database__PASSWD__FILE: /run/secrets/forgejo_db_password
-      FORGEJO__database__SSL_MODE: disable
-      FORGEJO__server__DOMAIN: ${FORGEJO_DOMAIN:?Set FORGEJO_DOMAIN in /opt/.env}
-      FORGEJO__server__ROOT_URL: https://${FORGEJO_DOMAIN:?Set FORGEJO_DOMAIN in /opt/.env}/
-      FORGEJO__server__SSH_DOMAIN: ${FORGEJO_DOMAIN:?Set FORGEJO_DOMAIN in /opt/.env}
-      FORGEJO__server__SSH_PORT: "2222"
-      FORGEJO__server__SSH_LISTEN_PORT: "2222"
-      FORGEJO__service__DISABLE_REGISTRATION: "true"
-      FORGEJO__actions__ENABLED: "true"
+    # Metadata lives in Postgres; repositories stay in /opt/forgejo/data.
+    # Runtime settings are kept outside this tracked Compose file.
+    env_file:
+      - /opt/forgejo/forgejo.env
     ports:
       - "127.0.0.1:3001:3000"
       - "2222:2222"
