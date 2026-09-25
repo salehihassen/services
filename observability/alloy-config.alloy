@@ -41,7 +41,19 @@ discovery.relabel "local" {
 loki.source.docker "local" {
 	host       = "unix:///var/run/docker.sock"
 	targets    = discovery.relabel.local.output
+	forward_to = [loki.process.local.receiver]
+}
+
+// Drop stale replayed backlog (e.g. after container restarts) before pushing.
+// 168h is comfortably under Loki's reject_old_samples_max_age (336h), so Loki
+// never emits "too far behind" rejections for replays.
+loki.process "local" {
 	forward_to = [loki.write.local.receiver]
+
+	stage.drop {
+		older_than          = "168h"
+		drop_counter_reason = "replay_too_old"
+	}
 }
 
 loki.write "local" {

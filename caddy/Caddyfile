@@ -80,6 +80,39 @@ https://{$GRAFANA_DOMAIN} {
 	}
 }
 
+# Loki log API, tailnet-only like the other d.salehh.xyz sites. Domain is
+# hardcoded (not an env placeholder) so caddy reload picks it up without a
+# container recreate. Same tls resolver override as quote.d: the zone's
+# wildcard CNAME breaks the local ACME propagation check.
+https://loki.d.salehh.xyz {
+	bind {$CADDY_BIND_ADDRESSES}
+
+	tls {
+		dns porkbun {
+			api_key {file./run/secrets/porkbun_api_key}
+			api_secret_key {file./run/secrets/porkbun_api_secret_key}
+		}
+		resolvers 1.1.1.1 8.8.8.8
+		propagation_delay 30s
+		propagation_timeout 5m
+	}
+
+	# Write-only door: log writers authenticate, and only push/readiness paths
+	# exist here. Reads stay behind Grafana's login over the docker network.
+	@push path /loki/api/v1/push /ready
+	handle @push {
+		basic_auth {
+			logshipper $2a$14$iNJoKtqTs1zC4zvrtdTEt.usxDDrxfp/eY3sL9QcsB8KMplBgA.dS
+		}
+		reverse_proxy http://127.0.0.1:3100 {
+			header_up -Tailscale-*
+		}
+	}
+	handle {
+		respond "log push endpoint only; read logs via grafana.d.salehh.xyz" 403
+	}
+}
+
 https://{$COUNTDOWN_DOMAIN} {
 	bind {$CADDY_BIND_ADDRESSES}
 

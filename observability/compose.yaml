@@ -13,6 +13,8 @@ services:
     command: ["-config.file=/etc/loki/config.yaml"]
     restart: unless-stopped
     ports:
+      # Localhost only. External writers use the authenticated, push-only
+      # https://loki.d.salehh.xyz Caddy site; see README.
       - "127.0.0.1:3100:3100"
     volumes:
       - ./loki-config.yaml:/etc/loki/config.yaml:ro
@@ -50,6 +52,7 @@ services:
       - run
       - --server.http.listen-addr=0.0.0.0:12345
       - --storage.path=/var/lib/alloy/data
+      - --disable-reporting
       - /etc/alloy/config.alloy
     restart: unless-stopped
     depends_on: [loki]
