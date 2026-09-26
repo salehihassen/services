@@ -18,6 +18,9 @@
 !/.github/workflows/
 /.github/workflows/*
 !/.github/workflows/validate-stack.yml
+!/scripts/
+/scripts/*
+!/scripts/validate-stack.sh
 
 # Reviewed Caddy build and routing definitions. Runtime data, configuration,
 # and secrets below /opt/caddy remain ignored.
