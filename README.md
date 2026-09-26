@@ -6,6 +6,36 @@ Git repo tracking compose stack for my 24/7 mini pc server at home hosting some 
 
 Docker Compose, Caddy, Porkbun DNS, and Tailscale to host the services on one machine and access it with other machines in my tailscale network.
 
+## Local CI validation
+
+Run the same checks as the GitHub Actions `validate` job without using Actions
+minutes:
+
+```bash
+bash scripts/validate-stack.sh
+```
+
+Requires Bash, Python 3, Docker, and Docker Compose **v5.5.1**, which is also
+pinned in the workflow. Older Compose versions can still read required service
+`env_file` paths even when `config --no-env-resolution` is used. The script checks
+the version before validating so local and CI behavior match.
+
+For just the fast Compose checks:
+
+```bash
+bash scripts/validate-stack.sh compose
+```
+
+Individual checks are `caddy-build`, `caddy`, `alloy`, and `loki`; run
+`caddy-build` before `caddy`. The full command builds the CI Caddy image and runs
+disposable validation containers. Alloy and Loki receive only their configuration
+files, without the live stack's data directories or Docker socket. No services
+are started or restarted. Image downloads and the Caddy build need network access;
+the validation containers run with networking disabled.
+
+These commands cover the workflow's configuration-validation job. The separate
+Gitleaks Git-history scan remains a separate GitHub Actions job.
+
 ## Forgejo CI
 
 `docker compose up -d` starts Forgejo, the `c3` runner, and its dedicated Docker

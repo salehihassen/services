@@ -41,61 +41,22 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Validate primary Compose project
-        # Runtime service env files live only on the deployment host.
-        # Keep interpolation from .env.example and Compose consistency checks.
-        run: >-
-          docker compose
-          --env-file .env.example
-          --project-directory .
-          --file docker-compose.yaml
-          config --quiet --no-env-resolution
+      - name: Set up Docker Compose
+        uses: docker/setup-compose-action@2fe291b7677a45ee1269ec56a42604c143505e7e # v1
+        with:
+          version: v5.5.1
 
-      - name: Validate observability Compose project
-        run: >-
-          docker compose
-          --env-file observability/.env.example
-          --project-directory observability
-          --file observability/compose.yaml
-          config --quiet
+      - name: Validate Compose projects
+        run: bash scripts/validate-stack.sh compose
 
       - name: Build custom Caddy image
-        run: docker build --tag services-caddy-ci --file caddy/Dockerfile caddy
+        run: bash scripts/validate-stack.sh caddy-build
 
       - name: Validate Caddyfile
-        shell: bash
-        run: |
-          set -euo pipefail
-          ci_secrets="$(mktemp -d)"
-          trap 'rm -rf "$ci_secrets"' EXIT
-          printf '%s\n' 'ci-placeholder' > "$ci_secrets/porkbun_api_key"
-          printf '%s\n' 'ci-placeholder' > "$ci_secrets/porkbun_api_secret_key"
-
-          docker run --rm --network none --read-only \
-            --env-file "$GITHUB_WORKSPACE/.env.example" \
-            --env ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory \
-            --env "CADDY_BIND_ADDRESSES=100.64.0.10 [fd7a:0000:0000::10]" \
-            --mount "type=bind,src=$GITHUB_WORKSPACE/caddy/Caddyfile,dst=/etc/caddy/Caddyfile,readonly" \
-            --mount "type=bind,src=$ci_secrets/porkbun_api_key,dst=/run/secrets/porkbun_api_key,readonly" \
-            --mount "type=bind,src=$ci_secrets/porkbun_api_secret_key,dst=/run/secrets/porkbun_api_secret_key,readonly" \
-            --entrypoint caddy \
-            services-caddy-ci \
-            validate --config /etc/caddy/Caddyfile
+        run: bash scripts/validate-stack.sh caddy
 
       - name: Check Alloy formatting
-        run: >-
-          docker compose
-          --env-file observability/.env.example
-          --project-directory observability
-          --file observability/compose.yaml
-          run --rm --no-deps alloy
-          fmt --test /etc/alloy/config.alloy
+        run: bash scripts/validate-stack.sh alloy
 
       - name: Validate Loki configuration
-        run: >-
-          docker compose
-          --env-file observability/.env.example
-          --project-directory observability
-          --file observability/compose.yaml
-          run --rm --no-deps loki
-          -verify-config=true -config.file=/etc/loki/config.yaml
+        run: bash scripts/validate-stack.sh loki
