@@ -30,6 +30,29 @@ https://{$T3C_DOMAIN} {
 	reverse_proxy http://127.0.0.1:3773
 }
 
+# Proton Mail Bridge GUI, accessible only on c3's Tailscale addresses.
+https://{$MBRIDGE_DOMAIN} {
+	bind {$CADDY_BIND_ADDRESSES}
+
+	# The zone's wildcard CNAME confuses the host resolver during DNS-01 checks.
+	tls {
+		dns porkbun {
+			api_key {file./run/secrets/porkbun_api_key}
+			api_secret_key {file./run/secrets/porkbun_api_secret_key}
+		}
+		resolvers 1.1.1.1 8.8.8.8
+		propagation_delay 30s
+		propagation_timeout 5m
+	}
+
+	@root path /
+	redir @root /vnc.html temporary
+
+	reverse_proxy http://127.0.0.1:15980 {
+		header_up -Tailscale-*
+	}
+}
+
 # Redirect legacy Open Web UI aliases to the canonical deployment.
 https://{$OPENWEBUI_ALIAS_DOMAIN} {
 	redir {$OPENWEBUI_REDIRECT_URL}{uri} temporary
