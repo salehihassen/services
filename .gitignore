@@ -8,6 +8,7 @@
 # Repository metadata and sanitized templates.
 !/.gitignore
 !/.env.example
+!/.gitleaks.toml
 
 # Primary Compose project.
 !/docker-compose.yaml

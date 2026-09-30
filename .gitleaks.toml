@@ -1,0 +1,13 @@
+# Repository secret-scanning rules, layered on Gitleaks' default ruleset.
+title = "services gitleaks config"
+
+[extend]
+useDefault = true
+
+# Gitleaks has no default rule for password hashes. Caddy basic_auth hashes
+# belong in the untracked /opt/.env, never in tracked files.
+[[rules]]
+id = "bcrypt-hash"
+description = "bcrypt password hash, raw or base64-encoded"
+regex = '''(\$2[abxy]?\$\d{2}\$[./A-Za-z0-9]{53}|JDJ[hiyx4]JD[A-Za-z0-9+/]{70,}={0,2})'''
+keywords = ["$2a$", "$2b$", "$2x$", "$2y$", "jdjhjd", "jdjijd", "jdj5jd", "jdj4jd"]
