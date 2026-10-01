@@ -1,17 +1,6 @@
 
 
 services:
-  portainer:
-    container_name: portainer
-    image: portainer/portainer-ce
-    restart: always
-    ports:
-      - "9000:9000/tcp"
-    environment:
-      - TZ=${TZ:?Set TZ in /opt/.env}
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /opt/portainer:/data
   homeassistant:
     container_name: homeassistant
     image: "ghcr.io/home-assistant/home-assistant:stable"
@@ -488,7 +477,6 @@ services:
       OPENWEBUI_ALIAS_DOMAIN: ${OPENWEBUI_ALIAS_DOMAIN:?Set OPENWEBUI_ALIAS_DOMAIN in /opt/.env}
       OPENWEBUI_LEGACY_DOMAIN: ${OPENWEBUI_LEGACY_DOMAIN:?Set OPENWEBUI_LEGACY_DOMAIN in /opt/.env}
       OPENWEBUI_REDIRECT_URL: ${OPENWEBUI_REDIRECT_URL:?Set OPENWEBUI_REDIRECT_URL in /opt/.env}
-      PORTAINER_DOMAIN: ${PORTAINER_DOMAIN:?Set PORTAINER_DOMAIN in /opt/.env}
       POLICY_PROXY_DOMAIN: ${POLICY_PROXY_DOMAIN:?Set POLICY_PROXY_DOMAIN in /opt/.env}
       POLICY_PROXY_UPSTREAM: ${POLICY_PROXY_UPSTREAM:?Set POLICY_PROXY_UPSTREAM in /opt/.env}
       CPA_DOMAIN: ${CPA_DOMAIN:?Set CPA_DOMAIN in /opt/.env}

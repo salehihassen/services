@@ -125,14 +125,6 @@ https://{$OPENWEBUI_LEGACY_DOMAIN} {
 	redir {$OPENWEBUI_REDIRECT_URL}{uri} temporary
 }
 
-https://{$PORTAINER_DOMAIN} {
-	bind {$CADDY_BIND_ADDRESSES}
-
-	reverse_proxy http://127.0.0.1:9000 {
-		header_up -Tailscale-*
-	}
-}
-
 https://{$POLICY_PROXY_DOMAIN} {
 	bind {$CADDY_BIND_ADDRESSES}
 
