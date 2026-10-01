@@ -216,7 +216,8 @@ services:
       USAGE_ACCOUNT_ACTIONS_ENABLED: "false"
       USAGE_ACCOUNT_ACTIONS_AUTO_DISABLE: "false"
     # Docker 29 intentionally ignores published ports on internal-only networks.
-    # Admin access uses an SSH tunnel to the management-network address.
+    # No host port is published. Admin access uses an SSH tunnel to the
+    # configured management-network address. CPAMP also has direct egress.
     volumes:
       - /opt/cpa/data/cpamp:/data
     secrets:
@@ -267,7 +268,7 @@ services:
       LISTEN_PORT: "18443"
       MAX_BODY_BYTES: "26214400"
       UPSTREAM_TIMEOUT_SECONDS: "900"
-    # Tailscale Serve targets the stable internal policy-network address.
+    # Host-networked Caddy targets the configured policy-network address.
     volumes:
       - /opt/cpa/config/ai-policy-proxy:/config:ro
       - /opt/cpa/data/ai-policy-proxy:/data

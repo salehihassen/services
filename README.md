@@ -36,6 +36,11 @@ the validation containers run with networking disabled.
 These commands cover the workflow's configuration-validation job. The separate
 Gitleaks Git-history scan remains a separate GitHub Actions job.
 
+The Caddy check also checks the adapted route configuration: reverse proxies
+must use Tailscale listeners, Loki must retain its authenticated push/readiness
+boundary, and direct CPA management paths must return 403 before proxying.
+Redirect-only listeners are reported separately for review.
+
 ## Forgejo CI
 
 `docker compose up -d` starts Forgejo, the `c3` runner, and its dedicated Docker
@@ -92,9 +97,14 @@ and its login password, session secret, and dedicated AI proxy key are mode-600
 files in `/opt/condenseit/secrets`. The password can be read locally with
 `cat /opt/condenseit/secrets/auth-password`.
 
-CondenseIt's runtime data and secrets under `/opt/condenseit` are deliberately
-absent from c3's Restic backup sources while this is an experiment. The normal
-backup includes `~/repos` and the tracked Compose and Caddy configuration.
+CondenseIt's configuration, data, and secrets under `/opt/condenseit` are included
+in c3's nightly encrypted Restic backup. SQLite is exported with the online backup
+API and checked before upload; restore the staged `condenseit.db` to its original
+data directory alongside the remaining files. Jobsmith's configuration, browser
+sessions, resumes, secrets, and data under `/opt/jobsmith` are also included, with
+an online SQLite export of `data/jobsmith.db`. Live database files and WAL/SHM
+sidecars are excluded in favor of these consistent exports. The normal
+backup also includes `~/repos` and the tracked Compose and Caddy configuration.
 The built-in digest scheduler is disabled;
 add sources and trigger the first digest from the web UI. Its LLM is configured
 for c3's `ai-policy/public` OpenAI-compatible proxy route. To stop only this

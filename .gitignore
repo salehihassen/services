@@ -22,6 +22,7 @@
 !/scripts/
 /scripts/*
 !/scripts/validate-stack.sh
+!/scripts/check-routing.py
 !/scripts/export-codex-usage.py
 !/scripts/export-claude-usage.py
 !/scripts/export-synthetic-usage.py

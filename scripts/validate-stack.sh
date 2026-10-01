@@ -44,15 +44,19 @@ validate_caddy() (
   # The real basic_auth hash lives only in /opt/.env; validate with a throwaway one.
   ci_password_hash="$(docker run --rm --network none --read-only --entrypoint caddy \
     services-caddy-ci hash-password --plaintext ci-placeholder | base64 -w0)"
-  docker run --rm --network none --read-only \
-    --env-file "$repo_root/.env.example" \
-    --env ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory \
-    --env "CADDY_BIND_ADDRESSES=100.64.0.10 [fd7a:0000:0000::10]" \
-    --env "LOKI_WRITER_PASSWORD_HASH=$ci_password_hash" \
-    --mount "type=bind,src=$repo_root/caddy/Caddyfile,dst=/etc/caddy/Caddyfile,readonly" \
-    --mount "type=bind,src=$ci_secrets/porkbun_api_key,dst=/run/secrets/porkbun_api_key,readonly" \
-    --mount "type=bind,src=$ci_secrets/porkbun_api_secret_key,dst=/run/secrets/porkbun_api_secret_key,readonly" \
-    --entrypoint caddy services-caddy-ci validate --config /etc/caddy/Caddyfile
+  ci_caddy() {
+    docker run --rm --network none --read-only \
+      --env-file "$repo_root/.env.example" \
+      --env ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory \
+      --env "CADDY_BIND_ADDRESSES=100.64.0.10 [fd7a:115c:a1e0::10]" \
+      --env "LOKI_WRITER_PASSWORD_HASH=$ci_password_hash" \
+      --mount "type=bind,src=$repo_root/caddy/Caddyfile,dst=/etc/caddy/Caddyfile,readonly" \
+      --mount "type=bind,src=$ci_secrets/porkbun_api_key,dst=/run/secrets/porkbun_api_key,readonly" \
+      --mount "type=bind,src=$ci_secrets/porkbun_api_secret_key,dst=/run/secrets/porkbun_api_secret_key,readonly" \
+      --entrypoint caddy services-caddy-ci "$@" --config /etc/caddy/Caddyfile
+  }
+  ci_caddy validate
+  ci_caddy adapt | python3 scripts/check-routing.py
 )
 
 validate_alloy() {

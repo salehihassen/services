@@ -9,15 +9,20 @@ does not merge lifecycle or state into `/opt/docker-compose.yaml`.
 - Loki: `127.0.0.1:3100`
 - Alloy UI: `127.0.0.1:12345`
 
-The ports are loopback-only. Caddy can expose Grafana over the tailnet later;
-remote Alloy agents should reach Loki through a protected tailnet endpoint.
+The ports are loopback-only. Caddy already exposes Grafana through the configured
+`GRAFANA_DOMAIN`, with Grafana's login, and Loki through `LOKI_DOMAIN` on the
+host's Tailscale addresses. Loki ingress requires Basic authentication and allows
+only `/loki/api/v1/push` and `/ready`; other paths return 403. Add remote writers
+to the existing authenticated handler, preserving its path restriction. Never
+replace it with an unrestricted Loki proxy or publish port 3100 on another
+interface. Reads use Grafana over the private Docker network.
 
 ## Retention and disk behavior
 
 Loki keeps 14 days of logs. This is a time retention rule, not a hard byte cap.
-On the host root filesystem, a warning/stop guard should be added before Loki
-approaches 50 GiB. A future dedicated 50 GiB logical volume provides the cleanest
-hard physical ceiling.
+The current host mounts a dedicated 20 GiB ext4 logical volume at the Loki data
+directory. Its size is the physical ceiling; monitor free space independently
+of retention. Recheck the actual mount with `findmnt` before changing placement.
 
 Each container in this project also rotates its own Docker JSON logs at three
 10 MiB files. Existing containers require recreation after adding equivalent
