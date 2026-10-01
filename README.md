@@ -75,3 +75,38 @@ For a fresh restore, restore the private runtime files before starting the full
 stack. A missing `.runner` requires one-time runner registration; merely creating
 a token file does not register the runner. See the [Forgejo runner installation
 documentation](https://forgejo.org/docs/latest/admin/actions/installation/docker/).
+
+## CondenseIt experiment
+
+`condenseit` serves the digest reader at the `NEWS_DOMAIN` host through
+Caddy on c3's Tailscale addresses. Its local image is built from upstream
+v2.8.0 in `/home/saleh/repos/condenseit`, with an experimental Hacker News
+collector change: new HN cards open the discussion and include sampled comments
+along with the article excerpt in the summary input. The detail panel offers
+separate original-article and HN-comment links; older HN entries were matched
+to their discussion pages in SQLite. Saved summaries from earlier runs are
+unchanged. The app runs with SQLite; the database, generated encryption
+key, and digests live in
+`/opt/condenseit/data`. The app configuration is `/opt/condenseit/config.yaml`,
+and its login password, session secret, and dedicated AI proxy key are mode-600
+files in `/opt/condenseit/secrets`. The password can be read locally with
+`cat /opt/condenseit/secrets/auth-password`.
+
+CondenseIt's runtime data and secrets under `/opt/condenseit` are deliberately
+absent from c3's Restic backup sources while this is an experiment. The normal
+backup includes `~/repos` and the tracked Compose and Caddy configuration.
+The built-in digest scheduler is disabled;
+add sources and trigger the first digest from the web UI. Its LLM is configured
+for c3's `ai-policy/public` OpenAI-compatible proxy route. To stop only this
+experiment, run `docker compose stop condenseit` from `/opt`.
+
+## Speakable
+
+`speakable` serves a small web UI and plain-text API at
+the `SPEAK_DOMAIN` host. Source lives in `/home/saleh/repos/speakable`;
+runtime configuration and its dedicated CPA client key live under
+`/opt/speakable`. Normal Markdown cleanup and citation removal are local. Only
+tables and fenced code use the AI policy proxy's
+`ai-policy/public` model (over its private Compose address), where the model
+must rewrite each block for speech or drop it. The container is stateless and
+publishes port 8900 on loopback for Caddy.

@@ -297,6 +297,165 @@ services:
       retries: 5
       start_period: 10s
 
+  jobsmith:
+    build:
+      context: /home/saleh/repos/Jobsmith
+      dockerfile: Dockerfile
+    image: jobsmith:c3-357c3e7-remote
+    container_name: jobsmith
+    restart: unless-stopped
+    init: true
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        export JOBSMITH_AI_API_KEY="$$(cat /run/secrets/jobsmith_cpa_key)"
+        exec /usr/local/bin/docker-entrypoint.sh serve
+    environment:
+      TZ: ${TZ:?Set TZ in /opt/.env}
+      JOBSMITH_AI_BASE_URL: http://ai-policy-proxy:18443/v1
+      JOBSMITH_EXTERNAL_URL: https://${JOBSMITH_DOMAIN:?Set JOBSMITH_DOMAIN in /opt/.env}
+      BROWSER_HEADLESS: "true"
+      USE_BROWSER_USE: "false"
+    ports:
+      - "127.0.0.1:8888:8888"
+    shm_size: "1gb"
+    volumes:
+      - /opt/jobsmith/config:/app/config
+      - /opt/jobsmith/data:/app/data
+      - /opt/jobsmith/resumes:/app/resumes
+      - /opt/jobsmith/sessions:/app/sessions
+      - /opt/jobsmith/failed_screenshots:/app/failed_screenshots
+      - /opt/jobsmith/.browser-profile:/app/.browser-profile
+    secrets:
+      - source: jobsmith_cpa_key
+        target: jobsmith_cpa_key
+    networks:
+      - default
+      - cpa_policy_model
+    depends_on:
+      ai-policy-proxy:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 3g
+    cpus: 4.0
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  # Experimental digest reader. Its SQLite data under /opt/condenseit is
+  # deliberately outside c3's backup source list.
+  condenseit:
+    build:
+      context: /home/saleh/repos/condenseit
+      dockerfile: Dockerfile
+    image: condenseit:c3-v2.8.0-hn-discussion
+    container_name: condenseit
+    restart: unless-stopped
+    init: true
+    user: "1000:1000"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        export CONDENSEIT_AUTH_PASSWORD="$$(cat /run/secrets/condenseit_auth_password)"
+        export DIGEST_PWA_SESSION_SECRET="$$(cat /run/secrets/condenseit_session_secret)"
+        export OPENAI_API_KEY="$$(cat /run/secrets/condenseit_cpa_key)"
+        exec condenseit serve --host 0.0.0.0 --port 8899
+    environment:
+      CONDENSEIT_CONFIG: /app/config.yaml
+      CONDENSEIT_DATA_DIR: /app/data
+      CONDENSEIT_FRONTEND_DIST: /app/frontend/dist
+      CONDENSEIT_SCHEDULER_ENABLED: "0"
+      TZ: ${TZ:?Set TZ in /opt/.env}
+    ports:
+      - "127.0.0.1:8899:8899"
+    volumes:
+      - /opt/condenseit/config.yaml:/app/config.yaml:ro
+      - /opt/condenseit/data:/app/data
+    secrets:
+      - source: condenseit_auth_password
+        target: condenseit_auth_password
+      - source: condenseit_session_secret
+        target: condenseit_session_secret
+      - source: condenseit_cpa_key
+        target: condenseit_cpa_key
+    networks:
+      - default
+      - cpa_policy_model
+    depends_on:
+      ai-policy-proxy:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,uid=1000,gid=1000
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8899/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  # Markdown-to-plain-text converter for TTS clients. Stateless; configuration
+  # and its dedicated AI proxy credential live under /opt/speakable.
+  speakable:
+    build:
+      context: /home/saleh/repos/speakable
+      dockerfile: Dockerfile
+    image: speakable:c3-v0.1.0
+    container_name: speakable
+    restart: unless-stopped
+    init: true
+    user: "1000:1000"
+    environment:
+      SPEAKABLE_CONFIG: /app/config.yaml
+      TZ: ${TZ:?Set TZ in /opt/.env}
+    ports:
+      - "127.0.0.1:8900:8000"
+    volumes:
+      - /opt/speakable/config.yaml:/app/config.yaml:ro
+    secrets:
+      - source: speakable_cpa_key
+        target: speakable_cpa_key
+    networks:
+      - default
+      - cpa_policy_model
+    depends_on:
+      ai-policy-proxy:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,uid=1000,gid=1000
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
   caddy:
     build:
       context: /opt/caddy
@@ -322,12 +481,17 @@ services:
       HOME_DOMAIN: ${HOME_DOMAIN:?Set HOME_DOMAIN in /opt/.env}
       T3C_DOMAIN: ${T3C_DOMAIN:?Set T3C_DOMAIN in /opt/.env}
       MBRIDGE_DOMAIN: ${MBRIDGE_DOMAIN:?Set MBRIDGE_DOMAIN in /opt/.env}
+      JOBSMITH_DOMAIN: ${JOBSMITH_DOMAIN:?Set JOBSMITH_DOMAIN in /opt/.env}
+      NEWS_DOMAIN: ${NEWS_DOMAIN:?Set NEWS_DOMAIN in /opt/.env}
+      SPEAK_DOMAIN: ${SPEAK_DOMAIN:?Set SPEAK_DOMAIN in /opt/.env}
       OPENWEBUI_ALIAS_DOMAIN: ${OPENWEBUI_ALIAS_DOMAIN:?Set OPENWEBUI_ALIAS_DOMAIN in /opt/.env}
       OPENWEBUI_LEGACY_DOMAIN: ${OPENWEBUI_LEGACY_DOMAIN:?Set OPENWEBUI_LEGACY_DOMAIN in /opt/.env}
       OPENWEBUI_REDIRECT_URL: ${OPENWEBUI_REDIRECT_URL:?Set OPENWEBUI_REDIRECT_URL in /opt/.env}
       PORTAINER_DOMAIN: ${PORTAINER_DOMAIN:?Set PORTAINER_DOMAIN in /opt/.env}
       POLICY_PROXY_DOMAIN: ${POLICY_PROXY_DOMAIN:?Set POLICY_PROXY_DOMAIN in /opt/.env}
       POLICY_PROXY_UPSTREAM: ${POLICY_PROXY_UPSTREAM:?Set POLICY_PROXY_UPSTREAM in /opt/.env}
+      CPA_DOMAIN: ${CPA_DOMAIN:?Set CPA_DOMAIN in /opt/.env}
+      CPA_UPSTREAM: ${CPA_UPSTREAM:?Set CPA_UPSTREAM in /opt/.env}
       PGADMIN_DOMAIN: ${PGADMIN_DOMAIN:?Set PGADMIN_DOMAIN in /opt/.env}
       FORGEJO_DOMAIN: ${FORGEJO_DOMAIN:?Set FORGEJO_DOMAIN in /opt/.env}
       GRAFANA_DOMAIN: ${GRAFANA_DOMAIN:?Set GRAFANA_DOMAIN in /opt/.env}
@@ -508,6 +672,16 @@ secrets:
     file: /opt/cpa/secrets/cpamp-admin-key
   policy_hmac_key:
     file: /opt/cpa/secrets/policy-hmac-key
+  jobsmith_cpa_key:
+    file: /opt/jobsmith/secrets/cpa-client-key
+  condenseit_auth_password:
+    file: /opt/condenseit/secrets/auth-password
+  condenseit_session_secret:
+    file: /opt/condenseit/secrets/session-secret
+  condenseit_cpa_key:
+    file: /opt/condenseit/secrets/cpa-client-key
+  speakable_cpa_key:
+    file: /opt/speakable/secrets/cpa-client-key
   porkbun_api_key:
     file: /opt/caddy/secrets/porkbun_api_key
   porkbun_api_secret_key:

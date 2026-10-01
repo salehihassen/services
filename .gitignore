@@ -26,6 +26,8 @@
 !/scripts/export-claude-usage.py
 !/scripts/export-synthetic-usage.py
 !/scripts/export-synthetic-usage.sh
+!/scripts/export-ollama-usage.py
+!/scripts/export-ollama-usage.sh
 !/scripts/usage-export.env.example
 
 # Reviewed Caddy build and routing definitions. Runtime data, configuration,

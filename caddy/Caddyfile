@@ -53,6 +53,69 @@ https://{$MBRIDGE_DOMAIN} {
 	}
 }
 
+https://{$JOBSMITH_DOMAIN} {
+	bind {$CADDY_BIND_ADDRESSES}
+
+	# The zone's wildcard CNAME confuses the host resolver during DNS-01 checks.
+	tls {
+		dns porkbun {
+			api_key {file./run/secrets/porkbun_api_key}
+			api_secret_key {file./run/secrets/porkbun_api_secret_key}
+		}
+		resolvers 1.1.1.1 8.8.8.8
+		propagation_delay 30s
+		propagation_timeout 5m
+	}
+
+	reverse_proxy http://127.0.0.1:8888 {
+		header_up -Tailscale-*
+	}
+}
+
+https://{$NEWS_DOMAIN} {
+	bind {$CADDY_BIND_ADDRESSES}
+
+	# Use public resolvers for DNS-01 while the zone has a wildcard CNAME.
+	tls {
+		dns porkbun {
+			api_key {file./run/secrets/porkbun_api_key}
+			api_secret_key {file./run/secrets/porkbun_api_secret_key}
+		}
+		resolvers 1.1.1.1 8.8.8.8
+		propagation_delay 30s
+		propagation_timeout 5m
+	}
+
+	reverse_proxy http://127.0.0.1:8899 {
+		header_up -Tailscale-*
+	}
+}
+
+https://{$SPEAK_DOMAIN} {
+	bind {$CADDY_BIND_ADDRESSES}
+
+	# Reject oversized bodies before FastAPI parses JSON. Keep this aligned with
+	# conversion.max_body_bytes in /opt/speakable/config.yaml.
+	request_body {
+		max_size 256KB
+	}
+
+	# Use public resolvers for DNS-01 while the zone has a wildcard CNAME.
+	tls {
+		dns porkbun {
+			api_key {file./run/secrets/porkbun_api_key}
+			api_secret_key {file./run/secrets/porkbun_api_secret_key}
+		}
+		resolvers 1.1.1.1 8.8.8.8
+		propagation_delay 30s
+		propagation_timeout 5m
+	}
+
+	reverse_proxy http://127.0.0.1:8900 {
+		header_up -Tailscale-*
+	}
+}
+
 # Redirect legacy Open Web UI aliases to the canonical deployment.
 https://{$OPENWEBUI_ALIAS_DOMAIN} {
 	redir {$OPENWEBUI_REDIRECT_URL}{uri} temporary
@@ -74,6 +137,29 @@ https://{$POLICY_PROXY_DOMAIN} {
 	bind {$CADDY_BIND_ADDRESSES}
 
 	reverse_proxy http://{$POLICY_PROXY_UPSTREAM} {
+		header_up -Tailscale-*
+	}
+}
+
+# Direct CLIProxyAPI access for tailnet clients. Management stays on its
+# existing SSH-tunnel path rather than being published through this hostname.
+https://{$CPA_DOMAIN} {
+	bind {$CADDY_BIND_ADDRESSES}
+
+	tls {
+		dns porkbun {
+			api_key {file./run/secrets/porkbun_api_key}
+			api_secret_key {file./run/secrets/porkbun_api_secret_key}
+		}
+		resolvers 1.1.1.1 8.8.8.8
+		propagation_delay 30s
+		propagation_timeout 5m
+	}
+
+	@management path /v0/management /v0/management/*
+	respond @management 403
+
+	reverse_proxy http://{$CPA_UPSTREAM} {
 		header_up -Tailscale-*
 	}
 }
