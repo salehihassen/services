@@ -263,3 +263,20 @@ https://{$QUOTES_DOMAIN} {
 
 	redir https://{$QUOTE_DOMAIN}{uri} temporary
 }
+
+# Email Assist: private read-only inbox triage; application HTTP basic auth.
+https://email-assist.d.salehh.xyz {
+    bind {$CADDY_BIND_ADDRESSES}
+    tls {
+        dns porkbun {
+            api_key {file./run/secrets/porkbun_api_key}
+            api_secret_key {file./run/secrets/porkbun_api_secret_key}
+        }
+        resolvers 1.1.1.1 8.8.8.8
+        propagation_delay 30s
+        propagation_timeout 5m
+    }
+    reverse_proxy http://127.0.0.1:8901 {
+        header_up -Tailscale-*
+    }
+}

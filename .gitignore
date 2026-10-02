@@ -47,3 +47,5 @@
 !/observability/README.md
 !/observability/alloy-config.alloy
 !/observability/loki-config.yaml
+
+/email-assist/
