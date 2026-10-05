@@ -133,8 +133,8 @@ https://{$POLICY_PROXY_DOMAIN} {
 	}
 }
 
-# Direct CLIProxyAPI access for tailnet clients. Management stays on its
-# existing SSH-tunnel path rather than being published through this hostname.
+# Direct CLIProxyAPI access for tailnet clients. Management uses the separate
+# CPAMP hostname or an SSH tunnel.
 https://{$CPA_DOMAIN} {
 	bind {$CADDY_BIND_ADDRESSES}
 
@@ -152,6 +152,25 @@ https://{$CPA_DOMAIN} {
 	respond @management 403
 
 	reverse_proxy http://{$CPA_UPSTREAM} {
+		header_up -Tailscale-*
+	}
+}
+
+# CPAMP management UI and API: tailnet HTTPS plus CPAMP's existing admin key.
+https://{$CPAMP_DOMAIN} {
+	bind {$CADDY_BIND_ADDRESSES}
+
+	tls {
+		dns porkbun {
+			api_key {file./run/secrets/porkbun_api_key}
+			api_secret_key {file./run/secrets/porkbun_api_secret_key}
+		}
+		resolvers 1.1.1.1 8.8.8.8
+		propagation_delay 30s
+		propagation_timeout 5m
+	}
+
+	reverse_proxy http://{$CPAMP_UPSTREAM} {
 		header_up -Tailscale-*
 	}
 }
@@ -265,7 +284,7 @@ https://{$QUOTES_DOMAIN} {
 }
 
 # Email Assist: private read-only inbox triage; application HTTP basic auth.
-https://email-assist.d.salehh.xyz {
+https://{$EMAIL_ASSIST_DOMAIN} {
     bind {$CADDY_BIND_ADDRESSES}
     tls {
         dns porkbun {
@@ -278,5 +297,30 @@ https://email-assist.d.salehh.xyz {
     }
     reverse_proxy http://127.0.0.1:8901 {
         header_up -Tailscale-*
+    }
+}
+
+# Experimental Job Sentinel: trusted tailnet, loopback-only UI/API backends.
+https://{$JOB_SENTINEL_DOMAIN} {
+    bind {$CADDY_BIND_ADDRESSES}
+    tls {
+        dns porkbun {
+            api_key {file./run/secrets/porkbun_api_key}
+            api_secret_key {file./run/secrets/porkbun_api_secret_key}
+        }
+        resolvers 1.1.1.1 8.8.8.8
+        propagation_delay 30s
+        propagation_timeout 5m
+    }
+    @api path /api /api/* /health /docs /docs/* /openapi.json /redoc
+    handle @api {
+        reverse_proxy http://127.0.0.1:8903 {
+            header_up -Tailscale-*
+        }
+    }
+    handle {
+        reverse_proxy http://127.0.0.1:8902 {
+            header_up -Tailscale-*
+        }
     }
 }

@@ -200,13 +200,14 @@ services:
       USAGE_BATCH_SIZE: "100"
       USAGE_POLL_INTERVAL_MS: "500"
       USAGE_QUERY_LIMIT: "50000"
-      USAGE_CORS_ORIGINS: "http://127.0.0.1:18317,http://localhost:18317"
+      USAGE_CORS_ORIGINS: "http://127.0.0.1:18317,http://localhost:18317,https://${CPAMP_DOMAIN:?Set CPAMP_DOMAIN in /opt/.env}"
       USAGE_QUOTA_COOLDOWN_ENABLED: "false"
       USAGE_ACCOUNT_ACTIONS_ENABLED: "false"
       USAGE_ACCOUNT_ACTIONS_AUTO_DISABLE: "false"
     # Docker 29 intentionally ignores published ports on internal-only networks.
-    # No host port is published. Admin access uses an SSH tunnel to the
-    # configured management-network address. CPAMP also has direct egress.
+    # No host port is published. Caddy reaches the configured management-network
+    # address for tailnet HTTPS access; SSH tunnels remain available.
+    # CPAMP also has direct egress.
     volumes:
       - /opt/cpa/data/cpamp:/data
     secrets:
@@ -289,9 +290,9 @@ services:
 
   jobsmith:
     build:
-      context: /home/saleh/repos/Jobsmith
+      context: /opt/jobsmith/source
       dockerfile: Dockerfile
-    image: jobsmith:c3-357c3e7-remote
+    image: jobsmith:c3-ee530be-visible-pipeline
     container_name: jobsmith
     restart: unless-stopped
     init: true
@@ -474,6 +475,8 @@ services:
       JOBSMITH_DOMAIN: ${JOBSMITH_DOMAIN:?Set JOBSMITH_DOMAIN in /opt/.env}
       NEWS_DOMAIN: ${NEWS_DOMAIN:?Set NEWS_DOMAIN in /opt/.env}
       SPEAK_DOMAIN: ${SPEAK_DOMAIN:?Set SPEAK_DOMAIN in /opt/.env}
+      EMAIL_ASSIST_DOMAIN: ${EMAIL_ASSIST_DOMAIN:?Set EMAIL_ASSIST_DOMAIN in /opt/.env}
+      JOB_SENTINEL_DOMAIN: ${JOB_SENTINEL_DOMAIN:?Set JOB_SENTINEL_DOMAIN in /opt/.env}
       OPENWEBUI_ALIAS_DOMAIN: ${OPENWEBUI_ALIAS_DOMAIN:?Set OPENWEBUI_ALIAS_DOMAIN in /opt/.env}
       OPENWEBUI_LEGACY_DOMAIN: ${OPENWEBUI_LEGACY_DOMAIN:?Set OPENWEBUI_LEGACY_DOMAIN in /opt/.env}
       OPENWEBUI_REDIRECT_URL: ${OPENWEBUI_REDIRECT_URL:?Set OPENWEBUI_REDIRECT_URL in /opt/.env}
@@ -481,6 +484,8 @@ services:
       POLICY_PROXY_UPSTREAM: ${POLICY_PROXY_UPSTREAM:?Set POLICY_PROXY_UPSTREAM in /opt/.env}
       CPA_DOMAIN: ${CPA_DOMAIN:?Set CPA_DOMAIN in /opt/.env}
       CPA_UPSTREAM: ${CPA_UPSTREAM:?Set CPA_UPSTREAM in /opt/.env}
+      CPAMP_DOMAIN: ${CPAMP_DOMAIN:?Set CPAMP_DOMAIN in /opt/.env}
+      CPAMP_UPSTREAM: ${CPAMP_MANAGEMENT_IP:?Set CPAMP_MANAGEMENT_IP in /opt/.env}:18317
       PGADMIN_DOMAIN: ${PGADMIN_DOMAIN:?Set PGADMIN_DOMAIN in /opt/.env}
       FORGEJO_DOMAIN: ${FORGEJO_DOMAIN:?Set FORGEJO_DOMAIN in /opt/.env}
       GRAFANA_DOMAIN: ${GRAFANA_DOMAIN:?Set GRAFANA_DOMAIN in /opt/.env}

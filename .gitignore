@@ -25,10 +25,12 @@
 !/scripts/check-routing.py
 !/scripts/export-codex-usage.py
 !/scripts/export-claude-usage.py
+!/scripts/test_export_claude_usage.py
 !/scripts/export-synthetic-usage.py
 !/scripts/export-synthetic-usage.sh
 !/scripts/export-ollama-usage.py
 !/scripts/export-ollama-usage.sh
+!/scripts/export-proton-mail-counts.py
 !/scripts/usage-export.env.example
 
 # Reviewed Caddy build and routing definitions. Runtime data, configuration,

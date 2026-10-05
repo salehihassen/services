@@ -41,6 +41,69 @@ must use Tailscale listeners, Loki must retain its authenticated push/readiness
 boundary, and direct CPA management paths must return 403 before proxying.
 Redirect-only listeners are reported separately for review.
 
+## CPAMP management access
+
+CPA Manager Plus is available through Caddy at the `CPAMP_DOMAIN` HTTPS
+hostname from Tailscale devices, using its existing security-key login.
+Caddy binds the route to `CADDY_BIND_ADDRESSES` and proxies to
+`CPAMP_MANAGEMENT_IP:18317`; CPAMP has no host-published port. Its allowed origins
+include this HTTPS origin and the existing localhost SSH tunnels. DNS A/AAAA
+records point to c3's Tailscale addresses, with Porkbun DNS-01 certificates.
+
+Provider OAuth callbacks still use the existing SSH forwards. See the private
+`/opt/cpa/docs/README.md` runbook for the callback ports and key location.
+
+## Claude usage exporter
+
+`scripts/export-claude-usage.py` writes the Claude quota sample used by Home
+Assistant. Configure `CLAUDE_USAGE_CREDENTIALS_FILE`, `CLAUDE_USAGE_OUTPUT`, and
+`CLAUDE_USAGE_STATE_FILE` in the systemd user service using the paths in
+`scripts/usage-export.env.example`. Keep the state file in a private host directory;
+if its path is omitted, it defaults to `.usage-export-state.json` beside the
+credential file. State and lock files use mode `0600`.
+
+The `claude-usage-export.timer` uses `OnUnitInactiveSec=10min` so the next run
+starts ten minutes after the previous run completes. The exporter also
+enforces a ten-minute minimum interval in persisted state and locks against
+overlapping runs. On rate limits or transient failures, cooldowns double from
+10 minutes through 20, 40, 80, and 160 minutes to a three-hour cap, with up to
+60 seconds of positive jitter within that cap. A longer `Retry-After` always
+takes priority; both seconds and HTTP-date headers are supported. Cooldowns
+survive service and timer restarts, including when the access token changes.
+
+Configure `CLAUDE_USAGE_EXECUTABLE` with the absolute path to Claude Code to
+enable automatic renewal of expired tokens. Once the persisted cooldown has
+elapsed, the exporter invokes `claude auth status` once, with a 45-second timeout,
+closed stdin, discarded output, and nonessential CLI traffic disabled. Claude Code
+owns the OAuth refresh and credential writes. Renewal uses the directory of
+`CLAUDE_USAGE_CREDENTIALS_FILE`, which must be named `.credentials.json`.
+The installed Claude Code 2.1.286 refresh behavior was verified with fake tokens
+against a local mock server; the command's exit status alone does not prove renewal.
+
+The exporter re-reads credentials and fetches quota only after the expired token
+has changed to an unexpired one. Failed or timed-out renewal uses the same
+10-minute-to-three-hour backoff, persisted before launching the CLI so restarts
+cannot bypass it. Existing usage cooldowns, including `Retry-After`, prevent both
+renewal and quota requests. Without `CLAUDE_USAGE_EXECUTABLE`, expired tokens wait
+for external renewal. If login is revoked, sign in again with Claude Code's `/login`.
+
+A 401 blocks further quota requests with the same token until it changes or
+expires and becomes eligible for renewal. The only immediate quota retry is when
+re-reading the credential file finds a different, unexpired token, and the server
+hasn't requested a wait. Unexpired tokens never trigger the renewal command.
+
+Failures preserve the last successful quota sample and its original timestamp.
+Home Assistant still marks it unavailable after 30 minutes. The service logs the
+failure category and next permitted attempt. Handled failures exit normally so
+systemd doesn't add another retry loop. Invalid state fails without a network
+request instead of silently discarding a cooldown.
+
+Run the regression checks without making network requests:
+
+```bash
+python3 -m unittest discover -s scripts -p 'test_export_claude_usage.py'
+```
+
 ## Forgejo CI
 
 `docker compose up -d` starts Forgejo, the `c3` runner, and its dedicated Docker
